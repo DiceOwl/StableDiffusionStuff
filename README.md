@@ -1,13 +1,12 @@
-# StableDiffusionStuff
+# Loopback and Superimpose
 
-Loopback and Superimpose
 Mixes output of img2img with original input image at strength alpha. The result is fed into img2img again (at loop>=2), and this procedure repeats.
 First image is result of img2img with no looping.
 Small alpha means small changes to the first image, large alpha means large changes.
 Tends to sharpen the image, improve consistency, reduce creativity and reduce fine detail.
 Does not work so well with the ancestral samplers (euler a).
 
-Interpolate
+# Interpolate
 Overview: An img2img script to produce in-between images. To that end one defines the interpolation ratio as number between 0 and 1. There are two main applications:
 a) Upload a second input image in the area the script provides for that purpose in addition to the primary input image of img2img. Then the script will blend the two input images at the interpolation ratio to base the actual input to img2img on. This way you can transition smoothly(relatively) from one input image to another. It can be useful to put a noise image as image 2. I have provided some interesting noise files for that purpose.
 b) The script will search prompt and negative prompt for "<number a>~<number b>" (that's a tilde between the numbers), and replace this by the linear interpolation of <number a> and <number b> according to the interpolation ratio. So for example "0.5~1.5" will be replaced by 0.6 at interpolation ratio 0.1, and 1.0 at interpolation ratio 0.5. You can also use negative numbers, and use an arbitrary number of these statements, assuming they do not overlap. The main purpose is to go smoothly from one prompt to another, via "<prompt a>:1~0 AND <prompt b>:0~1", so for example "a cat, highly detailed, by greg rutkowski:1~0 AND a dog, sharp focus, award-winning phot:0~1" will interpolate from a cat painting to a dog photo.
