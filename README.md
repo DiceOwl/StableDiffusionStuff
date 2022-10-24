@@ -8,17 +8,18 @@ Does not work so well with the ancestral samplers (euler a).
 
 # Interpolate
 
-Very basic instruction: 
-a) download the interpolate.py and put it in your scripts folder of automatic1111. restart gui if it is running
-b) on img2img, select interpolate from dropdown.
-c) put your first image into the image input, your second image into the image input provided by the script near the bottom
-d) write a prompt for our first image, lets call this promptA, and a second prompt for the second image, promptB
-e) write "promptA:1~0 AND promptB:0~1" into the prompt field
-f) write "0-1[11]" into the interpolation field of the script
-g) hit generate. this will generate 11 images, starting with first image promptA, and ending in second image promptB
+### Very basic instruction: ###
+* a) download the interpolate.py and put it in your scripts folder of automatic1111. restart gui if it is running
+* b) on img2img, select interpolate from dropdown.
+* c) put your first image into the image input, your second image into the image input provided by the script near the bottom
+* d) write a prompt for our first image, lets call this promptA, and a second prompt for the second image, promptB
+* e) write "promptA:1\~0 AND promptB:0\~1" into the prompt field
+* f) write "0-1[11]" into the interpolation field of the script
+* g) hit generate. this will generate 11 images, starting with first image promptA, and ending in second image promptB
 
 
-Overview: An img2img script to produce in-between images. To that end one defines the interpolation ratio as number between 0 and 1. There are two main applications:
+### Overview: ### 
+An img2img script to produce in-between images. To that end one defines the interpolation ratio as number between 0 and 1. There are two main applications:
 
 a) Upload a second input image in the area the script provides for that purpose in addition to the primary input image of img2img. Then the script will blend the two input images at the interpolation ratio to base the actual input to img2img on. This way you can transition smoothly(relatively) from one input image to another. It can be useful to put a noise image as image 2. I have provided some interesting noise files for that purpose.
 
@@ -31,13 +32,15 @@ In the interpolate field, you can put a comma seperated list of
 
   b) ranges ("0-0.5[3]" will produce three numbers, evenly from 0 to 0.5)
 
-Extra:
+### Extra: ###
 Var Seed Interpolation: When ticked, the script will interpolate the varseed strength from the Seed.Extra settings from 0 at interpolation ratio 0 to UI value at interpolation ratio 1. If you want to interpolate between two seeds, you can do so by putting the second seed as Var Seed and setting the strength to 1.
 
-Loopback: 
+### Loopback: ###
 The script can do a second(and third and ...) pass over the produced output. Lets call the basic blend of input image 1 and input image 2 the level0 images. Without loopback, it will simply feed the level0 images into img2img to produce the level1 images, which are the output. With loopback the script will continue for a second round. For that, the level1 images are temporaly blended in range determined by the stride setting. At stride 1, the 4th image will be mixed with the 3rd and 5th image, because these are in range 1. This blended image is then further mixed with the 4th level0 image at ratio alpha. For alpha=0, only the level0 image is used, for alpha=1, only the blended level1 images are used. This is then fed into img2img again to produce the 4th level2 output image. There is one exception: the first and last image are not temporaly blended. Instead, the first level1 image is mixed with the first level0 image at proportion given by the border alpha parameter. The same for the last image. This is so that it is possible to chain multiple interpolations. The seed used for the loopback pass will be the same as the first pass, unless the reuse seed box is unticked. Increase the loopback value for even more passes. Note: This multiplies the number of images which need to be processed with a corresponding compute time cost. See normal.jpg for interpolating a train to a car, with 4 loopbacks, alpha 0.15, border_alpha 0.1. See latent.jpg for the same with interpoplation in latent space.
 
-Paste on mask: Useful for inpainting.
+### Paste on mask: ###
+Useful for inpainting.
 When unticked, all of input image 1 is mixed with all of input image 2. When ticked, instead input image 2 is rescaled to the rectangle incribed by the mask, and then only blended with image 1 inside the mask. Combine with using the cropping tool of the image 2 UI to do a very targeted blending. Hint: Use denoising 0 and interpolate 0.5 to quickly see if you selected a good cropping area.
 
-Interpolate in latent: When ticked, the image interpolation will be performed on the latent representations instead of the pixel space blending. This is somewhat experimental, put seems to lead to better images. More experimentation needed. 
+### Interpolate in latent: ###
+When ticked, the image interpolation will be performed on the latent representations instead of the pixel space blending. This is somewhat experimental, put seems to lead to better images. More experimentation needed. 
