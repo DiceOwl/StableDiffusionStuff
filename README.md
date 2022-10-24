@@ -7,6 +7,17 @@ Tends to sharpen the image, improve consistency, reduce creativity and reduce fi
 Does not work so well with the ancestral samplers (euler a).
 
 # Interpolate
+
+Very basic instruction: 
+a) download the interpolate.py and put it in your scripts folder of automatic1111. restart gui if it is running
+b) on img2img, select interpolate from dropdown.
+c) put your first image into the image input, your second image into the image input provided by the script near the bottom
+d) write a prompt for our first image, lets call this promptA, and a second prompt for the second image, promptB
+e) write "promptA:1~0 AND promptB:0~1" into the prompt field
+f) write "0-1[11]" into the interpolation field of the script
+g) hit generate. this will generate 11 images, starting with first image promptA, and ending in second image promptB
+
+
 Overview: An img2img script to produce in-between images. To that end one defines the interpolation ratio as number between 0 and 1. There are two main applications:
 
 a) Upload a second input image in the area the script provides for that purpose in addition to the primary input image of img2img. Then the script will blend the two input images at the interpolation ratio to base the actual input to img2img on. This way you can transition smoothly(relatively) from one input image to another. It can be useful to put a noise image as image 2. I have provided some interesting noise files for that purpose.
