@@ -12,9 +12,9 @@ Does not work so well with the ancestral samplers (euler a).
 * a) download the interpolate.py and put it in your scripts folder of automatic1111. restart gui if it is running
 * b) on img2img, select interpolate from dropdown.
 * c) put your first image into the image input, your second image into the image input provided by the script near the bottom
-* d) write a prompt for our first image, lets call this promptA, and a second prompt for the second image, promptB
-* e) write "promptA:1\~0 AND promptB:0\~1" into the prompt field
-* f) write "0-1[11]" into the interpolation field of the script
+* d) think of a prompt for your first image, lets call this promptA, and a second prompt for the second image, promptB
+* e) write "promptA:1\~0 AND promptB:0\~1" into the prompt field. important, the AND must be capital letters, and no spaces between colon, numbers and tilde
+* f) write "0-1[11]" into the interpolation field of the script (hint: use "0.2-0.8[4]" for a quick test interpolation)
 * g) hit generate. this will generate 11 images, starting with first image promptA, and ending in second image promptB
 
 
