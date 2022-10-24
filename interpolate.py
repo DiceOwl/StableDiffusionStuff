@@ -1,10 +1,12 @@
 import numpy as np
 from tqdm import trange
+import types
 
 from copy import copy
-
 import modules.scripts as scripts
 import gradio as gr
+import torch
+import numpy as np
 
 import random
 from PIL import Image, ImageFilter, ImageOps
@@ -81,6 +83,72 @@ def process_int(vals):
     return valslist
 
 
+
+
+def hijack_init(self, all_prompts, all_seeds, all_subseeds):
+    self.old_init(all_prompts, all_seeds, all_subseeds)
+    
+    # imgs = []
+    # for img in self.init_images:
+        # image = img.convert("RGB")
+
+        # if crop_region is None:
+            # image = images.resize_image(self.resize_mode, image, self.width, self.height)
+
+        # if self.image_mask is not None:
+            # image_masked = Image.new('RGBa', (image.width, image.height))
+            # image_masked.paste(image.convert("RGBA").convert("RGBa"), mask=ImageOps.invert(self.mask_for_overlay.convert('L')))
+
+            # self.overlay_images.append(image_masked.convert('RGBA'))
+
+        # if crop_region is not None:
+            # image = image.crop(crop_region)
+            # image = images.resize_image(2, image, self.width, self.height)
+
+        # if self.image_mask is not None:
+            # if self.inpainting_fill != 1:
+                # image = masking.fill(image, latent_mask)
+
+        # if add_color_corrections:
+            # self.color_corrections.append(setup_color_correction(image))
+
+        # image = np.array(image).astype(np.float32) / 255.0
+        # image = np.moveaxis(image, 2, 0)
+
+        # imgs.append(image)
+        
+    def toLatent(img):
+        res = img.convert("RGB") #should be already, but whatever
+        #res = images.resize_image(self.resize_mode, image2, self.width, self.height)
+        res = np.array(res).astype(np.float32) / 255.0
+        res = np.moveaxis(res, 2, 0)
+
+        batch_res = np.expand_dims(res, axis=0).repeat(self.batch_size, axis=0)
+        
+        res = torch.from_numpy(batch_res)
+        res = 2. * res - 1.
+
+        res = res.to(shared.device)
+        res = self.sd_model.get_first_stage_encoding(self.sd_model.encode_first_stage(res))
+        
+        return res
+        
+    latent2 = toLatent(self.init_img2)
+    self.init_latent = self.init_latent*(1.-self.interpolate_ratio) + latent2*self.interpolate_ratio
+    del latent2
+    if self.mixin_img:
+        self.init_latent = self.init_latent*(1.-self.mixin_ratio)
+        self.mixin_ratio /= len(self.mixin_img)
+        for i in self.mixin_img:
+            latent_i = toLatent(i)
+            self.init_latent = self.init_latent + latent_i*self.mixin_ratio
+            del latent_i
+        #latent_mixin = toLatent(self.mixin_img)
+        #self.init_latent = self.init_latent*(1.-self.mixin_ratio) + latent_mixin*self.mixin_ratio
+        #del latent_mixin
+
+
+
 class Script(scripts.Script):
     def title(self):
         return "Interpolate"
@@ -115,13 +183,15 @@ class Script(scripts.Script):
             one_grid = gr.Checkbox(label='One grid', value=True)
             interpolate_varseed = gr.Checkbox(label='Interpolate VarSeed', value=False)
             paste_on_mask = gr.Checkbox(label='Paste on mask', value=False)
+            inpaint_all = gr.Checkbox(label='Inpaint all', value=False)
+            interpolate_latent = gr.Checkbox(label='Interpolate in latent', value=False)
             
         loopback_toggle.change(change_visibility, show_progress=False, inputs=[loopback_toggle], outputs=loopback_vis) 
 
             
-        return [init_img2, i_values, loopback_alpha, border_alpha, loopback_loops, blend_strides, loopback_toggle, reuse_seed, one_grid, interpolate_varseed, paste_on_mask]
+        return [init_img2, i_values, loopback_alpha, border_alpha, loopback_loops, blend_strides, loopback_toggle, reuse_seed, one_grid, interpolate_varseed, paste_on_mask, inpaint_all, interpolate_latent]
 
-    def run(self, p, init_img2, i_values, loopback_alpha, border_alpha, loopback_loops, blend_strides, loopback_toggle, reuse_seed, one_grid, interpolate_varseed, paste_on_mask):
+    def run(self, p, init_img2, i_values, loopback_alpha, border_alpha, loopback_loops, blend_strides, loopback_toggle, reuse_seed, one_grid, interpolate_varseed, paste_on_mask, inpaint_all, interpolate_latent):
         processing.fix_seed(p)
         init_seed = p.seed
         tick_seed = init_seed + 1
@@ -130,7 +200,7 @@ class Script(scripts.Script):
         p.extra_generation_params = {}
 
         p.batch_size = 1
-        batch_count = 1
+        #batch_count = 1
         n = 0
         p.n_iter = 1
 
@@ -198,6 +268,7 @@ class Script(scripts.Script):
                 p.image_mask = init_mask
         if not init_img2:
             init_img2 = init_img
+            
         
         history = []
         
@@ -205,6 +276,7 @@ class Script(scripts.Script):
         
         state.job_count = len(x) * batch_count * ( loopback_loops + 1 if loopback_toggle else 1 )
     
+        
 
         
         def process_list(img_in):
@@ -217,12 +289,31 @@ class Script(scripts.Script):
                 
                 if interpolate_varseed:
                     pc.subseed_strength = var_seed_strength*x[i]
-            
-                #pc.init_images = [Image.blend(init_img, init_img2, min(1,max(0,x[i])))]
-                pc.init_images = [img_in[i]]
+                    
+                    
+                   
+                if interpolate_latent:
+                    pc.old_init = pc.init
+                    pc.init = types.MethodType(hijack_init,pc)
+                    pc.init_img2 = init_img2
+                    if img_in and i!=0 and i!=len(x)-1:  #mix with previous level and neighbors
+                        pc.mixin_ratio = loopback_alpha
+                        pc.mixin_img = [ img_in[j] for j in set(range(len(img_in))) & set(range(i-blend_strides,i+blend_strides+1)) ]
+                    elif img_in:
+                        pc.mixin_ratio = border_alpha
+                        pc.mixin_img = [ img_in[i] ]    #no sideways blending
+                    else:
+                        pc.mixin_img = None
+                    pc.interpolate_ratio = x[i]
+                    pc.init_images = [init_img]
+                else:
+                    pc.init_images = [img_in[i]]
+                    
                 pc.n_iter = 1
                 pc.batch_size = 1
                 pc.do_not_save_grid = True
+                if inpaint_all:
+                    pc.image_mask = None
 
                 if opts.img2img_color_correction:
                     pc.color_corrections = initial_color_corrections
@@ -231,7 +322,7 @@ class Script(scripts.Script):
 
                 processed = processing.process_images(pc)
                 
-                if init_mask:
+                if init_mask and not inpaint_all:
                     res.append( Image.composite(processed.images[0], init_img, init_mask) )
                 else:
                     res.append(processed.images[0])
@@ -275,29 +366,38 @@ class Script(scripts.Script):
             return res
                   
             
-        #TODO: respect mask
-        if init_mask:
-            level0 = [Image.composite(Image.blend(init_img, init_img2, min(1,max(0,i))), init_img, init_mask) for i in x]
-        else:
-            level0 = [Image.blend(init_img, init_img2, min(1,max(0,i))) for i in x]
-        
-        level1 = process_list(level0)
-        all_images_grid += level1
-        all_images += level1
- 
-        if loopback_toggle:
-            cur_level = level1
-            for i in range(loopback_loops):
-                if not reuse_seed:
-                    p.seed = p.seed + 1
-                    p.subseed = p.subseed + 1
-                cur_level = process_list( blend_images(level0, cur_level, loopback_alpha, border_alpha, blend_strides) )
-                all_images += cur_level
-                all_images_grid += cur_level
+        for n in range(batch_count):
+            if init_mask:
+                level0 = [Image.composite(Image.blend(init_img, init_img2, min(1,max(0,i))), init_img, init_mask) for i in x]
+            else:
+                level0 = [Image.blend(init_img, init_img2, min(1,max(0,i))) for i in x]
+            
+            if interpolate_latent:
+                level1 = process_list(None) #blending done in hijack_init
+            else:
+                level1 = process_list(level0)
+            all_images_grid += level1
+            all_images += level1
+     
+            if loopback_toggle:
+                cur_level = level1
+                for i in range(loopback_loops):
+                    if not reuse_seed:
+                        p.seed = p.seed + 1
+                        p.subseed = p.subseed + 1
+                    if interpolate_latent:
+                        cur_level = process_list( cur_level )   #blending with neighbors not supported yet, just feed in last results and push the blending to hijack_init
+                    else:
+                        cur_level = process_list( blend_images(level0, cur_level, loopback_alpha, border_alpha, blend_strides) )
+                    all_images += cur_level
+                    all_images_grid += cur_level
+            
+            p.seed = p.seed + 1
+            p.subseed = p.subseed + 1
             
 
         if one_grid:
-            grid = images.image_grid(all_images_grid, rows=batch_count*(loopback_loops+1))
+            grid = images.image_grid(all_images_grid, rows=batch_count*(loopback_loops+1 if loopback_toggle else 1))
             if opts.grid_save:
                 images.save_image(grid, p.outpath_grids, "grid", initial_seed, p.prompt, opts.grid_format, info=info, short_filename=not opts.grid_extended_filename, grid=True, p=p)
 
