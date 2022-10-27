@@ -86,6 +86,7 @@ def process_int(vals):
 
 
 def hijack_init(self, all_prompts, all_seeds, all_subseeds):
+    image_mask_bak = self.image_mask
     self.old_init(all_prompts, all_seeds, all_subseeds)
     
     # imgs = []
@@ -132,15 +133,33 @@ def hijack_init(self, all_prompts, all_seeds, all_subseeds):
         res = self.sd_model.get_first_stage_encoding(self.sd_model.encode_first_stage(res))
         
         return res
-        
-    latent2 = toLatent(self.init_img2)
+    
+    if self.image_mask and self.inpaint_full_res:
+        x,y,w,h = self.paste_to
+        crop_region = (x,y,x+w,y+h)
+        # image_mask_bak = image_mask_bak.convert('L')
+
+        # if self.inpainting_mask_invert:
+            # image_mask_bak = ImageOps.invert(image_mask_bak)
+
+        # if self.mask_blur > 0:
+            # image_mask_bak = image_mask_bak.filter(ImageFilter.GaussianBlur(self.mask_blur))
+        # mask = image_mask_bak.convert('L')
+        # crop_region = masking.get_crop_region(np.array(mask), self.inpaint_full_res_padding)
+        # crop_region = masking.expand_crop_region(crop_region, self.width, self.height, mask.width, mask.height)
+        latent2 = toLatent(images.resize_image(2, self.init_img2.crop(crop_region), self.width, self.height))
+    else:
+        latent2 = toLatent(self.init_img2)
     self.init_latent = self.init_latent*(1.-self.interpolate_ratio) + latent2*self.interpolate_ratio
     del latent2
     if self.mixin_img:
         self.init_latent = self.init_latent*(1.-self.mixin_ratio)
         self.mixin_ratio /= len(self.mixin_img)
         for i in self.mixin_img:
-            latent_i = toLatent(i)
+            if self.image_mask and self.inpaint_full_res:
+                latent_i = toLatent(images.resize_image(2, i.crop(crop_region), self.width, self.height))
+            else:
+                latent_i = toLatent(i)
             self.init_latent = self.init_latent + latent_i*self.mixin_ratio
             del latent_i
         #latent_mixin = toLatent(self.mixin_img)
@@ -206,6 +225,8 @@ class Script(scripts.Script):
 
         output_images, info = None, "info test"
         initial_seed = p.seed
+        initial_info = None
+        initial_prompt = p.prompt
         #initial_info = create_infotext(p, p.prompt, [p.seed], [p.subseed], [])
         var_seed_strength = p.subseed_strength
 
@@ -268,7 +289,7 @@ class Script(scripts.Script):
                 p.image_mask = init_mask
         if not init_img2:
             init_img2 = init_img
-            
+        
         
         history = []
         
@@ -281,6 +302,7 @@ class Script(scripts.Script):
         
         def process_list(img_in):
             res = []
+            nonlocal initial_info
             
             for i in range(len(x)):
             
@@ -322,7 +344,10 @@ class Script(scripts.Script):
 
                 processed = processing.process_images(pc)
                 
-                if init_mask and not inpaint_all:
+                if not initial_info:
+                    initial_info = processed.info
+                
+                if init_mask and not inpaint_all:#test
                     res.append( Image.composite(processed.images[0], init_img, init_mask) )
                 else:
                     res.append(processed.images[0])
@@ -367,7 +392,9 @@ class Script(scripts.Script):
                   
             
         for n in range(batch_count):
-            if init_mask:
+            if interpolate_latent:
+                level0 = [init_img for i in x]
+            elif init_mask:
                 level0 = [Image.composite(Image.blend(init_img, init_img2, min(1,max(0,i))), init_img, init_mask) for i in x]
             else:
                 level0 = [Image.blend(init_img, init_img2, min(1,max(0,i))) for i in x]
@@ -385,10 +412,16 @@ class Script(scripts.Script):
                     if not reuse_seed:
                         p.seed = p.seed + 1
                         p.subseed = p.subseed + 1
-                    if interpolate_latent:
-                        cur_level = process_list( cur_level )   #blending with neighbors not supported yet, just feed in last results and push the blending to hijack_init
-                    else:
-                        cur_level = process_list( blend_images(level0, cur_level, loopback_alpha, border_alpha, blend_strides) )
+                    # if interpolate_latent:
+                        # if init_mask:
+                            # if crop_region is None:
+                                # cur_level_resized = [ images.resize_image(p.resize_mode, j, p.width, p.height) for j in cur_level ]
+                            # else:
+                                # cur_level_resized = [ j.crop(crop_region) for j in cur_level ]
+                                # cur_level_resized = [ images.resize_image(p.resize_mode, j, p.width, p.height) for j in cur_level_resized ]
+                        # cur_level = process_list( cur_level_resized )   
+                    # else:
+                    cur_level = process_list( blend_images(level0, cur_level, loopback_alpha, border_alpha, blend_strides) )
                     all_images += cur_level
                     all_images_grid += cur_level
             
@@ -406,6 +439,9 @@ class Script(scripts.Script):
         if opts.return_grid:
             all_images = grids + all_images
             
-        processed = Processed(p, all_images, initial_seed)
+        all_seeds = [initial_seed  for i in all_images]
+        all_infos = [initial_info  for i in all_images]
+        all_prompts = [initial_prompt for i in all_images]
+        processed = Processed(p, all_images, seed=initial_seed, info=initial_info, all_seeds=all_seeds, all_prompts=all_prompts, infotexts=all_infos )
 
         return processed
