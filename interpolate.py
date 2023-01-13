@@ -6,7 +6,6 @@ from copy import copy
 import modules.scripts as scripts
 import gradio as gr
 import torch
-import numpy as np
 
 import random
 from PIL import Image, ImageFilter, ImageOps
@@ -154,18 +153,25 @@ def hijack_init(self, all_prompts, all_seeds, all_subseeds):
     del latent2
     if self.mixin_img:
         self.init_latent = self.init_latent*(1.-self.mixin_ratio)
-        self.mixin_ratio /= len(self.mixin_img)
+        mixin_ratio /= len(self.mixin_img)
         for i in self.mixin_img:
             if self.image_mask and self.inpaint_full_res:
                 latent_i = toLatent(images.resize_image(2, i.crop(crop_region), self.width, self.height))
             else:
                 latent_i = toLatent(i)
-            self.init_latent = self.init_latent + latent_i*self.mixin_ratio
+            self.init_latent = self.init_latent + latent_i*mixin_ratio
             del latent_i
         #latent_mixin = toLatent(self.mixin_img)
         #self.init_latent = self.init_latent*(1.-self.mixin_ratio) + latent_mixin*self.mixin_ratio
         #del latent_mixin
 
+
+def blend_images_fix(imgs, weights):
+    a = [np.asarray(i.convert("RGB")) for i in imgs]
+    res = a[0]*weights[0]
+    for i in range(1,len(imgs)):
+        res += a[i]*weights[i]
+    return Image.fromarray(res.astype(np.uint8))
 
 
 class Script(scripts.Script):
@@ -365,29 +371,15 @@ class Script(scripts.Script):
             res = []
             for i in range(len(base)):
                 if i == 0 or i == len(base)-1 or strides == 0:
-                    res.append(Image.blend(base[i], pre[i], border_alpha))
-                elif 0:
-                    temp = Image.blend(pre[i-1], pre[i+1], 0.5)
-                    blend = Image.blend(pre[i], temp, 0.5)
-                    res.append(Image.blend(base[i], blend, alpha))
-                elif 1:
+                    res.append(blend_images_fix([base[i], pre[i]], [1-border_alpha,border_alpha]))
+                else:
                     l = min(min(i,strides),min(len(base)-i-1,strides))
-                    #indices = list(set(range(i-l,i+l+1)) & set(range(len(base))) - set([i]))
                     indices = list(set(range(i-l,i+l+1)) & set(range(len(base))))
-                    temp = np.asarray(pre[i])
-                    blend = np.zeros_like(temp)
-                    a = 1/len(indices)
-                    for j in indices:
-                        blend = blend + np.asarray(pre[j])*a
-                    #blend = temp*0.5 + blend*0.5
-                    res.append(Image.blend(base[i], Image.fromarray(blend.astype(np.uint8)), alpha))    
-                else:   #get 0.5 pre[i] plus an even mixture of all other images in range, has rounding issues
-                    indices = list(set(range(i-strides,i+strides+1)) & set(range(len(base))) - set([i]))
-                    temp = pre[i]
-                    a = 0.5/len(indices)
-                    for n,j in enumerate(indices):
-                        temp = Image.blend(temp, pre[j], a * (1-a)**(n+1-len(indices)))
-                    res.append(Image.blend(base[i], temp, alpha))    
+                    imgs = [base[i]]
+                    weights = [1-alpha]
+                    imgs.extend([pre[j] for j in indices])
+                    weights.extend([alpha/len(indices) for j in indices])
+                    res.append(blend_images_fix(imgs, weights))
             return res
                   
             
@@ -395,9 +387,11 @@ class Script(scripts.Script):
             if interpolate_latent:
                 level0 = [init_img for i in x]
             elif init_mask:
-                level0 = [Image.composite(Image.blend(init_img, init_img2, min(1,max(0,i))), init_img, init_mask) for i in x]
+                #level0 = [Image.composite(Image.blend(init_img, init_img2, min(1,max(0,i))), init_img, init_mask) for i in x]
+                level0 = [Image.composite( blend_images_fix([init_img, init_img2], [1-min(1,max(0,i)), min(1,max(0,i))]), init_img, init_mask) for i in x]
             else:
-                level0 = [Image.blend(init_img, init_img2, min(1,max(0,i))) for i in x]
+                #level0 = [Image.blend(init_img, init_img2, min(1,max(0,i))) for i in x]
+                level0 = [blend_images_fix([init_img, init_img2], [1-min(1,max(0,i)), min(1,max(0,i))]) for i in x]
             
             if interpolate_latent:
                 level1 = process_list(None) #blending done in hijack_init
@@ -412,16 +406,18 @@ class Script(scripts.Script):
                     if not reuse_seed:
                         p.seed = p.seed + 1
                         p.subseed = p.subseed + 1
-                    # if interpolate_latent:
-                        # if init_mask:
-                            # if crop_region is None:
-                                # cur_level_resized = [ images.resize_image(p.resize_mode, j, p.width, p.height) for j in cur_level ]
-                            # else:
-                                # cur_level_resized = [ j.crop(crop_region) for j in cur_level ]
-                                # cur_level_resized = [ images.resize_image(p.resize_mode, j, p.width, p.height) for j in cur_level_resized ]
-                        # cur_level = process_list( cur_level_resized )   
-                    # else:
-                    cur_level = process_list( blend_images(level0, cur_level, loopback_alpha, border_alpha, blend_strides) )
+                    if interpolate_latent:
+                        if init_mask:
+                            if crop_region is None:
+                                cur_level_resized = [ images.resize_image(p.resize_mode, j, p.width, p.height) for j in cur_level ]
+                            else:
+                                cur_level_resized = [ j.crop(crop_region) for j in cur_level ]
+                                cur_level_resized = [ images.resize_image(p.resize_mode, j, p.width, p.height) for j in cur_level_resized ]
+                        else:
+                            cur_level_resized = cur_level
+                        cur_level = process_list( cur_level_resized )   
+                    else:
+                        cur_level = process_list( blend_images(level0, cur_level, loopback_alpha, border_alpha, blend_strides) )
                     all_images += cur_level
                     all_images_grid += cur_level
             
