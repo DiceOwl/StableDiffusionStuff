@@ -153,7 +153,7 @@ def hijack_init(self, all_prompts, all_seeds, all_subseeds):
     del latent2
     if self.mixin_img:
         self.init_latent = self.init_latent*(1.-self.mixin_ratio)
-        mixin_ratio /= len(self.mixin_img)
+        mixin_ratio = 1/len(self.mixin_img)
         for i in self.mixin_img:
             if self.image_mask and self.inpaint_full_res:
                 latent_i = toLatent(images.resize_image(2, i.crop(crop_region), self.width, self.height))
